@@ -1,0 +1,196 @@
+name: Build & Deploy to ECS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to deploy"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - frontend
+          - backend
+
+env:
+  AWS_REGION: eu-west-2
+  PROJECT_NAME: securebank
+  ECS_CLUSTER: securebank-production-cluster
+  FRONTEND_SERVICE: securebank-frontend-service
+  BACKEND_SERVICE: securebank-backend-service
+  FRONTEND_REPO: securebank-frontend
+  BACKEND_REPO: securebank-backend
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-frontend:
+    name: Build Frontend
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.service == 'all' ||
+      github.event.inputs.service == 'frontend'
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag and push frontend image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG \
+                        -t $ECR_REGISTRY/$FRONTEND_REPO:latest \
+                        ./frontend
+          docker push $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$FRONTEND_REPO:latest
+          echo "image=$ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build.outputs.image }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL
+
+  build-backend:
+    name: Build Backend
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' ||
+      github.event.inputs.service == 'all' ||
+      github.event.inputs.service == 'backend'
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag and push backend image
+        id: build
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG \
+                        -t $ECR_REGISTRY/$BACKEND_REPO:latest \
+                        ./backend
+          docker push $ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$BACKEND_REPO:latest
+          echo "image=$ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ steps.build.outputs.image }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL
+
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    if: needs.build-frontend.result == 'success'
+
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.PROJECT_NAME }}-frontend \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Update task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: frontend
+          image: ${{ needs.build-frontend.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.FRONTEND_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
+
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    needs: build-backend
+    if: needs.build-backend.result == 'success'
+
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.PROJECT_NAME }}-backend \
+            --query taskDefinition \
+            > task-definition.json
+
+      - name: Update task definition with new image
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: backend
+          image: ${{ needs.build-backend.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.BACKEND_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
