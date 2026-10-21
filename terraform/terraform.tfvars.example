@@ -1,0 +1,4 @@
+aws_region = "eu-west-2"
+environment = "production"
+project_name = "securebank"
+# app_config_secret_arn = "arn:aws:secretsmanager:REGION:ACCOUNT:secret:APP_CONFIG"

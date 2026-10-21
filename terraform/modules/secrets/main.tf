@@ -41,7 +41,7 @@ resource "aws_secretsmanager_secret" "secret_key" {
 }
 
 resource "aws_secretsmanager_secret_version" "secret_key" {
-  secret_id     = aws_secretsmanager_secret.secret_key.id
+  secret_id = aws_secretsmanager_secret.secret_key.id
   secret_string = jsonencode({
     secret_key = random_password.secret_key.result
   })

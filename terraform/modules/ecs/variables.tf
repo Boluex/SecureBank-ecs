@@ -89,3 +89,8 @@ variable "db_username" {
 variable "alb_security_group_id" {
   type = string
 }
+variable "app_config_secret_arn" {
+  description = "Existing Secrets Manager JSON secret with encryption_key, private_key_pem and public_key_pem. Required for a runnable application."
+  type        = string
+  default     = null
+}

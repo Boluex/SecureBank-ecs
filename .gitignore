@@ -46,3 +46,14 @@ node_modules/
 dist/
 build/
 .next/
+
+# Local credentials and generated files
+!.env.example
+!*.tfvars.example
+tfplan
+*.pem
+*.key
+.pytest_cache/
+.build/
+secrets.env
+secrets.yaml

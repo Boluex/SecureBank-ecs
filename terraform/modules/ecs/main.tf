@@ -1,3 +1,5 @@
+data "aws_region" "current" {}
+
 # ECS Cluster
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-${var.environment}-cluster"
@@ -98,24 +100,18 @@ resource "aws_ecs_task_definition" "frontend" {
         }
       ]
 
-      environment = [
-        {
-          name  = "VITE_API_URL"
-          value = "http://${var.db_endpoint}"
-        }
-      ]
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.frontend.name
-          "awslogs-region"        = "eu-west-2"
+          "awslogs-region"        = data.aws_region.current.name
           "awslogs-stream-prefix" = "frontend"
         }
       }
 
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost/ || exit 1"]
+        command     = ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -167,7 +163,7 @@ resource "aws_ecs_task_definition" "backend" {
         }
       ]
 
-      secrets = [
+      secrets = concat([
         {
           name      = "DB_PASSWORD"
           valueFrom = "${var.db_secret_arn}:password::"
@@ -176,13 +172,18 @@ resource "aws_ecs_task_definition" "backend" {
           name      = "SECRET_KEY"
           valueFrom = "${var.secret_key_arn}:secret_key::"
         }
-      ]
+        ], var.app_config_secret_arn == null ? [] : [
+        for key in ["encryption_key", "private_key_pem", "public_key_pem"] : {
+          name      = upper(key)
+          valueFrom = "${var.app_config_secret_arn}:${key}::"
+        }
+      ])
 
       logConfiguration = {
         logDriver = "awslogs"
         options = {
           "awslogs-group"         = aws_cloudwatch_log_group.backend.name
-          "awslogs-region"        = "eu-west-2"
+          "awslogs-region"        = data.aws_region.current.name
           "awslogs-stream-prefix" = "backend"
         }
       }

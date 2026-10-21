@@ -59,9 +59,10 @@ module "ecs" {
   task_role_arn             = module.iam.ecs_task_role_arn
   frontend_target_group_arn = module.alb.frontend_target_group_arn
   backend_target_group_arn  = module.alb.backend_target_group_arn
+  app_config_secret_arn     = var.app_config_secret_arn
   db_secret_arn             = module.secrets.db_password_secret_arn
   secret_key_arn            = module.secrets.secret_key_arn
-  db_endpoint               = module.rds.db_endpoint
+  db_endpoint               = module.rds.db_address
   db_name                   = var.db_name
   db_username               = var.db_username
   alb_security_group_id     = module.alb.alb_security_group_id

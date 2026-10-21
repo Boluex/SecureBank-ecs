@@ -1,14 +1,12 @@
 name: Build & Deploy to ECS
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "frontend/**"
-      - "backend/**"
-      - ".github/workflows/deploy.yml"
   workflow_dispatch:
     inputs:
+      source_ref:
+        description: SecureBank application commit or tag
+        required: true
+        type: string
       service:
         description: "Service to deploy"
         required: true
@@ -46,6 +44,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          repository: Boluex/SecureBank
+          ref: ${{ inputs.source_ref }}
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -61,9 +62,9 @@ jobs:
         id: build
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          docker build -t $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG \
+          docker build --build-arg VITE_API_URL= -t $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG \
                         -t $ECR_REGISTRY/$FRONTEND_REPO:latest \
                         ./frontend
           docker push $ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG
@@ -71,7 +72,7 @@ jobs:
           echo "image=$ECR_REGISTRY/$FRONTEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.17.0
         with:
           image-ref: ${{ steps.build.outputs.image }}
           format: table
@@ -91,6 +92,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          repository: Boluex/SecureBank
+          ref: ${{ inputs.source_ref }}
 
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -106,7 +110,7 @@ jobs:
         id: build
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           docker build -t $ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG \
                         -t $ECR_REGISTRY/$BACKEND_REPO:latest \
@@ -116,7 +120,7 @@ jobs:
           echo "image=$ECR_REGISTRY/$BACKEND_REPO:$IMAGE_TAG" >> $GITHUB_OUTPUT
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.17.0
         with:
           image-ref: ${{ steps.build.outputs.image }}
           format: table
